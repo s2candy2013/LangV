@@ -14,6 +14,14 @@ val localProperties = Properties().apply {
     if (file.exists()) file.inputStream().use(::load)
 }
 
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    require(file.exists()) {
+        "Missing keystore.properties. Create it from the local production keystore template before building a release APK."
+    }
+    file.inputStream().use(::load)
+}
+
 fun localValue(key: String, fallback: String = ""): String =
     localProperties.getProperty(key, fallback).replace("\\", "\\\\").replace("\"", "\\\"")
 
@@ -37,13 +45,20 @@ android {
         buildConfigField("boolean", "APP_CHECK_DEBUG", localBoolean("firebase.appCheckDebug").toString())
     }
 
+    signingConfigs {
+        create("production") {
+            storeFile = file(requireNotNull(keystoreProperties.getProperty("storeFile")))
+            storePassword = requireNotNull(keystoreProperties.getProperty("storePassword"))
+            keyAlias = requireNotNull(keystoreProperties.getProperty("keyAlias"))
+            keyPassword = requireNotNull(keystoreProperties.getProperty("keyPassword"))
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
-            // A demo APK must be installable without a user keystore. Replace this
-            // with a dedicated signingConfig before enabling Firebase/App Check.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("production")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
