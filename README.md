@@ -18,21 +18,16 @@ APK release nằm ở `app/build/outputs/apk/release/app-release.apk`. Khi chưa
 ## Bật Google Sign-In + Gemini thật
 
 1. Tạo Firebase project và đăng ký Android app với package `com.linusv.englishcoach`.
-2. Thêm SHA-1/SHA-256 của certificate dùng để ký APK vào Firebase Console.
-3. Bật Firebase Authentication > Google.
-4. Bật Firebase AI Logic và chọn Gemini Developer API.
-5. Bật App Check > Play Integrity. Vì APK cài ngoài Play Store, không yêu cầu `PLAY_RECOGNIZED`/`LICENSED`; dùng mức `Device integrity`.
-6. Tạo Web OAuth client ID để dùng với Credential Manager.
-7. Copy `local.properties.example` thành `local.properties` và điền:
+2. Tải `google-services.json` từ Firebase Console và đặt tại `app/google-services.json` (file này đã được thêm vào thư mục app nhưng không commit).
+3. Thêm SHA-1/SHA-256 của certificate dùng để ký APK vào Firebase Console.
+4. Bật Firebase Authentication > Google.
+5. Bật Firebase AI Logic và chọn Gemini Developer API.
+6. Bật App Check > Play Integrity. Vì APK cài ngoài Play Store, không yêu cầu `PLAY_RECOGNIZED`/`LICENSED`; dùng mức `Device integrity`.
+7. Tạo Web OAuth client ID để Credential Manager sinh `default_web_client_id`.
+8. Copy `local.properties.example` thành `local.properties` và chỉ điền:
 
 ```properties
 allowed.email=your-email@gmail.com
-firebase.apiKey=...
-firebase.appId=1:...:android:...
-firebase.projectId=...
-firebase.messagingSenderId=...
-firebase.storageBucket=...
-firebase.webClientId=...apps.googleusercontent.com
 firebase.model=gemini-3.8-flash
 ```
 

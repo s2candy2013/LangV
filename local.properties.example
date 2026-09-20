@@ -1,10 +1,5 @@
-# Copy this file to local.properties for Firebase mode.
-# Leave the Firebase fields blank to build the offline demo APK.
+# Copy this file to local.properties.
+# Firebase project settings come from app/google-services.json.
+# Leave allowed.email blank only for local/demo testing; set it for the personal APK.
 allowed.email=your-google-email@example.com
-firebase.apiKey=
-firebase.appId=
-firebase.projectId=
-firebase.messagingSenderId=
-firebase.storageBucket=
-firebase.webClientId=
 firebase.model=gemini-3.8-flash

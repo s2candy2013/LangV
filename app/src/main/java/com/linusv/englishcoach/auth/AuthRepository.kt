@@ -29,11 +29,18 @@ class AuthRepository(
         if (!application.firebaseConfigured) {
             return Result.success(SignedInUser("demo-user", "demo@local", "Demo learner"))
         }
-        if (BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank()) return Result.failure(IllegalStateException("Thiếu firebase.webClientId trong local.properties"))
+        val webClientId = application.resources
+            .getIdentifier("default_web_client_id", "string", application.packageName)
+            .takeIf { it != 0 }
+            ?.let(application::getString)
+            .orEmpty()
+        if (webClientId.isBlank()) {
+            return Result.failure(IllegalStateException("Firebase chưa có Web OAuth client ID cho Google Sign-In"))
+        }
         return runCatching {
             val credentialManager = CredentialManager.create(activity)
             val googleIdOption = GetGoogleIdOption.Builder()
-                .setServerClientId(BuildConfig.GOOGLE_WEB_CLIENT_ID)
+                .setServerClientId(webClientId)
                 .setFilterByAuthorizedAccounts(false)
                 .setAutoSelectEnabled(false)
                 .build()

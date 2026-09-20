@@ -6,6 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
+    id("com.google.gms.google-services")
 }
 
 val localProperties = Properties().apply {
@@ -29,12 +30,6 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
         buildConfigField("String", "ALLOWED_EMAIL", "\"${localValue("allowed.email")}\"")
-        buildConfigField("String", "FIREBASE_API_KEY", "\"${localValue("firebase.apiKey")}\"")
-        buildConfigField("String", "FIREBASE_APP_ID", "\"${localValue("firebase.appId")}\"")
-        buildConfigField("String", "FIREBASE_PROJECT_ID", "\"${localValue("firebase.projectId")}\"")
-        buildConfigField("String", "FIREBASE_SENDER_ID", "\"${localValue("firebase.messagingSenderId")}\"")
-        buildConfigField("String", "FIREBASE_STORAGE_BUCKET", "\"${localValue("firebase.storageBucket")}\"")
-        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"${localValue("firebase.webClientId")}\"")
         buildConfigField("String", "GEMINI_MODEL", "\"${localValue("firebase.model", "gemini-3.8-flash")}\"")
     }
 
