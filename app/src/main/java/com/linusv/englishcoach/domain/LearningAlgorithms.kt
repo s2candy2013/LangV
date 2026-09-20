@@ -1,16 +1,31 @@
 package com.linusv.englishcoach.domain
 
+import java.text.Normalizer
 import kotlin.math.max
 
 fun normalizeTranscript(value: String): List<String> = value
+    .let { Normalizer.normalize(it, Normalizer.Form.NFKC) }
     .lowercase()
-    .replace(Regex("[^a-z0-9' ]"), " ")
+    .replace(Regex("[^\\p{L}\\p{N}' ]"), " ")
     .split(Regex("\\s+"))
     .filter(String::isNotBlank)
 
-fun wordErrorRate(reference: String, hypothesis: String): Double {
-    val ref = normalizeTranscript(reference)
-    val hyp = normalizeTranscript(hypothesis)
+fun tokenizeTranscript(value: String, languageCode: String): List<String> {
+    val normalized = Normalizer.normalize(value, Normalizer.Form.NFKC)
+        .lowercase()
+        .replace(Regex("[^\\p{L}\\p{N}' ]"), " ")
+        .trim()
+    return when {
+        languageCode.startsWith("zh") || languageCode == "ja" -> normalized.filterNot(Char::isWhitespace).map(Char::toString)
+        normalized.contains(' ') -> normalized.split(Regex("\\s+")).filter(String::isNotBlank)
+        languageCode == "ko" -> normalized.map(Char::toString)
+        else -> normalizeTranscript(normalized)
+    }
+}
+
+fun wordErrorRate(reference: String, hypothesis: String, languageCode: String = "en"): Double {
+    val ref = tokenizeTranscript(reference, languageCode)
+    val hyp = tokenizeTranscript(hypothesis, languageCode)
     if (ref.isEmpty()) return if (hyp.isEmpty()) 0.0 else 1.0
     val distances = Array(ref.size + 1) { IntArray(hyp.size + 1) }
     for (i in 0..ref.size) distances[i][0] = i
@@ -24,8 +39,8 @@ fun wordErrorRate(reference: String, hypothesis: String): Double {
     return distances[ref.size][hyp.size].toDouble() / ref.size
 }
 
-fun contentAccuracy(reference: String, hypothesis: String): Int =
-    (100.0 * (1.0 - wordErrorRate(reference, hypothesis)).coerceIn(0.0, 1.0)).toInt()
+fun contentAccuracy(reference: String, hypothesis: String, languageCode: String = "en"): Int =
+    (100.0 * (1.0 - wordErrorRate(reference, hypothesis, languageCode)).coerceIn(0.0, 1.0)).toInt()
 
 fun combinedScore(content: Int, pronunciation: Int, fluency: Int): Int =
     (content * .4 + pronunciation * .4 + fluency * .2).toInt().coerceIn(0, 100)

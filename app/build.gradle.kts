@@ -17,6 +17,9 @@ val localProperties = Properties().apply {
 fun localValue(key: String, fallback: String = ""): String =
     localProperties.getProperty(key, fallback).replace("\\", "\\\\").replace("\"", "\\\"")
 
+fun localBoolean(key: String, fallback: Boolean = false): Boolean =
+    localProperties.getProperty(key)?.toBooleanStrictOrNull() ?: fallback
+
 android {
     namespace = "com.linusv.englishcoach"
     compileSdk = 35
@@ -31,6 +34,7 @@ android {
         vectorDrawables { useSupportLibrary = true }
         buildConfigField("String", "ALLOWED_EMAIL", "\"${localValue("allowed.email")}\"")
         buildConfigField("String", "GEMINI_MODEL", "\"${localValue("firebase.model", "gemini-3.8-flash")}\"")
+        buildConfigField("boolean", "APP_CHECK_DEBUG", localBoolean("firebase.appCheckDebug").toString())
     }
 
     buildTypes {
@@ -55,6 +59,14 @@ android {
     }
     buildFeatures { compose = true; buildConfig = true }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+}
+
+android.applicationVariants.all {
+    val apkVersion = versionName
+    outputs.all {
+        (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
+            "LangV-$apkVersion.apk"
+    }
 }
 
 dependencies {

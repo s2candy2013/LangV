@@ -3,3 +3,5 @@
 # Leave allowed.email blank only for local/demo testing; set it for the personal APK.
 allowed.email=your-google-email@example.com
 firebase.model=gemini-3.8-flash
+# Chỉ bật cho APK thử nghiệm cài trực tiếp. Đăng ký debug token trong Firebase Console.
+firebase.appCheckDebug=false

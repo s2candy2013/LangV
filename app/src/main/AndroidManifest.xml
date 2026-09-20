@@ -5,7 +5,9 @@
     <application
         android:name=".EnglishCoachApplication"
         android:allowBackup="true"
-        android:label="English Coach"
+        android:icon="@drawable/langv_logo_v3"
+        android:label="Language Coach"
+        android:roundIcon="@drawable/langv_logo_v3"
         android:supportsRtl="true"
         android:theme="@style/Theme.EnglishCoach">
         <activity

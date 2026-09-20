@@ -84,14 +84,27 @@ class MainViewModel(
         }
     }
 
+    fun switchLanguage(languageCode: String) {
+        val current = _state.value.profile ?: return
+        if (current.languageCode == languageCode) return
+        viewModelScope.launch {
+            setBusy(true)
+            runCatching { repository.switchLanguage(languageCode, current) }
+                .onSuccess { (profile, lesson) -> _state.value = _state.value.copy(profile = profile, lesson = lesson, speakingResult = null, error = null) }
+                .onFailure { _state.value = _state.value.copy(error = "Không chuyển được ngôn ngữ: ${it.message ?: "hãy thử lại"}") }
+            setBusy(false)
+        }
+    }
+
     fun loadLatestLesson() {
         viewModelScope.launch { _state.value = _state.value.copy(lesson = repository.latestLesson()) }
     }
 
     fun scoreSpeech(targetText: String, transcript: String, audio: File?) {
+        val profile = _state.value.profile ?: return
         viewModelScope.launch {
             setBusy(true)
-            runCatching { repository.scoreSpeech(targetText, transcript, audio) }
+            runCatching { repository.scoreSpeech(profile, targetText, transcript, audio) }
                 .onSuccess { _state.value = _state.value.copy(speakingResult = it, error = null) }
                 .onFailure { _state.value = _state.value.copy(error = "Không chấm được audio: ${it.message ?: "hãy thử lại"}") }
             audio?.delete()

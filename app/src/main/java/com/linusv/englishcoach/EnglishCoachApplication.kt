@@ -17,7 +17,7 @@ class EnglishCoachApplication : Application() {
         val firebaseApp = runCatching { FirebaseApp.initializeApp(this) }.getOrNull()
         if (firebaseApp != null) {
             val appCheck = FirebaseAppCheck.getInstance()
-            if (BuildConfig.DEBUG) {
+            if (BuildConfig.DEBUG || BuildConfig.APP_CHECK_DEBUG) {
                 appCheck.installAppCheckProviderFactory(DebugAppCheckProviderFactory.getInstance())
             } else {
                 appCheck.installAppCheckProviderFactory(PlayIntegrityAppCheckProviderFactory.getInstance())

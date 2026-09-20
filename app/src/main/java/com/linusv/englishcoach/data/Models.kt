@@ -4,13 +4,38 @@ import androidx.room.Entity
 import androidx.room.PrimaryKey
 import kotlinx.serialization.Serializable
 
+data class VoiceOption(val tag: String, val label: String)
+
+data class LearningLanguage(
+    val code: String,
+    val displayNameVi: String,
+    val shortName: String,
+    val levelSystem: String,
+    val levels: List<String>,
+    val defaultLevel: String,
+    val voices: List<VoiceOption>,
+)
+
+object SupportedLanguages {
+    val all = listOf(
+        LearningLanguage("en", "Tiếng Anh", "Anh", "CEFR", listOf("A1", "A2", "B1", "B2", "C1"), "A2", listOf(VoiceOption("en-US", "Mỹ"), VoiceOption("en-GB", "Anh"))),
+        LearningLanguage("zh-CN", "Tiếng Trung (Giản thể)", "Trung giản thể", "HSK", listOf("HSK 1", "HSK 2", "HSK 3", "HSK 4", "HSK 5", "HSK 6"), "HSK 1", listOf(VoiceOption("zh-CN", "Phổ thông"))),
+        LearningLanguage("zh-TW", "Tiếng Trung (Phồn thể)", "Trung phồn thể", "TOCFL", listOf("A1", "A2", "B1", "B2", "C1", "C2"), "A1", listOf(VoiceOption("zh-TW", "Đài Loan"))),
+        LearningLanguage("ja", "Tiếng Nhật", "Nhật", "JLPT", listOf("N5", "N4", "N3", "N2", "N1"), "N5", listOf(VoiceOption("ja-JP", "Tokyo"))),
+        LearningLanguage("ko", "Tiếng Hàn", "Hàn", "TOPIK", listOf("TOPIK 1", "TOPIK 2", "TOPIK 3", "TOPIK 4", "TOPIK 5", "TOPIK 6"), "TOPIK 1", listOf(VoiceOption("ko-KR", "Seoul"))),
+    )
+
+    fun find(code: String): LearningLanguage = all.firstOrNull { it.code == code } ?: all.first()
+}
+
 @Serializable
 data class VocabularyItem(
     val term: String,
-    val ipa: String,
+    val pronunciation: String,
+    val romanization: String? = null,
     val partOfSpeech: String,
     val meaningVi: String,
-    val exampleEn: String,
+    val exampleTarget: String,
     val exampleVi: String,
 )
 
@@ -25,7 +50,7 @@ data class GrammarPattern(
 @Serializable
 data class ReadingPassage(
     val title: String,
-    val textEn: String,
+    val textTarget: String,
     val translationVi: String,
     val questions: List<String>,
 )
@@ -40,7 +65,8 @@ data class SpeakingPrompt(
 data class LessonPayload(
     val title: String,
     val topic: String,
-    val cefr: String,
+    val languageCode: String,
+    val level: String,
     val vocabulary: List<VocabularyItem>,
     val grammar: List<GrammarPattern>,
     val passage: ReadingPassage,
@@ -57,12 +83,12 @@ data class PronunciationFeedback(
 
 @Serializable
 data class LearnerProfile(
-    val id: Int = 1,
+    val languageCode: String = "en",
     val level: String = "A2",
     val goal: String = "Giao tiếp hằng ngày",
     val interests: String = "Công việc và đời sống",
     val sessionMinutes: Int = 15,
-    val accent: String = "US",
+    val voiceTag: String = "en-US",
     val completedOnboarding: Boolean = false,
 )
 
@@ -86,13 +112,14 @@ data class GeneratedLesson(
 
 @Entity(tableName = "profiles")
 data class LearnerProfileEntity(
-    @PrimaryKey val id: Int = 1,
+    @PrimaryKey val languageCode: String,
     val level: String,
     val goal: String,
     val interests: String,
     val sessionMinutes: Int,
-    val accent: String,
+    val voiceTag: String,
     val completedOnboarding: Boolean,
+    val isActive: Boolean,
 )
 
 @Entity(tableName = "lessons")
@@ -103,11 +130,13 @@ data class LessonEntity(
     val topic: String,
     val level: String,
     val payloadJson: String,
+    val languageCode: String,
 )
 
-@Entity(tableName = "vocabulary_progress")
+@Entity(tableName = "vocabulary_progress", primaryKeys = ["languageCode", "term"])
 data class VocabularyProgressEntity(
-    @PrimaryKey val term: String,
+    val languageCode: String,
+    val term: String,
     val intervalDays: Int = 0,
     val nextReviewAt: Long = 0,
     val reviewCount: Int = 0,
@@ -124,4 +153,5 @@ data class SpeakingAttemptEntity(
     val fluency: Int,
     val overall: Int,
     val feedbackJson: String,
+    val languageCode: String,
 )

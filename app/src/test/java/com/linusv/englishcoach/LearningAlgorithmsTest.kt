@@ -13,6 +13,8 @@ class LearningAlgorithmsTest {
     @Test fun normalizeRemovesPunctuation() = assertEquals(listOf("hello", "world"), normalizeTranscript("Hello, world!"))
     @Test fun exactTranscriptHasZeroError() = assertEquals(0.0, wordErrorRate("hello world", "Hello world"), 0.001)
     @Test fun missingWordReducesAccuracy() = assertTrue(contentAccuracy("hello brave world", "hello world") < 100)
+    @Test fun chineseCharactersAreComparedWithoutSpaces() = assertEquals(0.0, wordErrorRate("你好世界", "你好世界", "zh-CN"), 0.001)
+    @Test fun japaneseMismatchIsNotDiscarded() = assertTrue(contentAccuracy("こんにちは", "こんばんは", "ja") < 100)
     @Test fun scoreUsesExpectedWeights() = assertEquals(80, combinedScore(80, 80, 80))
     @Test fun reviewIntervalsFollowPlan() { assertEquals(1, nextReviewInterval("Again", 7)); assertEquals(3, nextReviewInterval("Hard", 7)); assertEquals(7, nextReviewInterval("Good", 0)); assertEquals(14, nextReviewInterval("Easy", 7)); assertEquals(30, nextReviewInterval("Easy", 14)) }
 }

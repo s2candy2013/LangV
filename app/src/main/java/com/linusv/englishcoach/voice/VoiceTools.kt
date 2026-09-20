@@ -17,9 +17,9 @@ class VoiceRecorder(private val context: Context) {
     private var output: File? = null
     private var latestTranscript: String = ""
 
-    fun start(onTranscript: (String) -> Unit): File {
+    fun start(languageTag: String, onTranscript: (String) -> Unit): File {
         check(SpeechRecognizer.isRecognitionAvailable(context)) { "Thiết bị không có SpeechRecognizer" }
-        val file = File.createTempFile("english_coach_", ".m4a", context.cacheDir)
+        val file = File.createTempFile("language_coach_", ".m4a", context.cacheDir)
         output = file
         latestTranscript = ""
         recorder = MediaRecorder().apply {
@@ -52,7 +52,7 @@ class VoiceRecorder(private val context: Context) {
             })
             startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.US.toLanguageTag())
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             })
         }
@@ -92,9 +92,9 @@ class PronunciationSpeaker(context: Context) : TextToSpeech.OnInitListener {
         if (ready) tts.language = Locale.US
     }
 
-    fun speak(text: String, accent: String = "US") {
+    fun speak(text: String, languageTag: String = "en-US") {
         if (!ready) return
-        tts.language = if (accent == "UK") Locale.UK else Locale.US
+        tts.language = Locale.forLanguageTag(languageTag)
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "english_coach")
     }
 
