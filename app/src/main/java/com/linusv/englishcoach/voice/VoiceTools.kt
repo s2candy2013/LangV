@@ -28,7 +28,7 @@ class VoiceRecorder(private val context: Context) {
     private var output: File? = null
     private var latestTranscript: String = ""
 
-    fun start(languageTag: String, onTranscript: (String) -> Unit): File {
+    fun start(languageTag: String, onTranscript: (String) -> Unit, onError: (String) -> Unit = {}): File {
         check(SpeechRecognizer.isRecognitionAvailable(context)) { "Thiết bị không có SpeechRecognizer" }
         val file = File.createTempFile("language_coach_", ".m4a", context.cacheDir)
         output = file
@@ -53,7 +53,7 @@ class VoiceRecorder(private val context: Context) {
                     val partial = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
                     if (partial.isNotBlank()) onTranscript(partial)
                 }
-                override fun onError(error: Int) = Unit
+                override fun onError(error: Int) = onError(recognitionErrorMessage(error))
                 override fun onReadyForSpeech(params: Bundle?) = Unit
                 override fun onBeginningOfSpeech() = Unit
                 override fun onRmsChanged(rmsdB: Float) = Unit
@@ -68,6 +68,15 @@ class VoiceRecorder(private val context: Context) {
             })
         }
         return file
+    }
+
+    private fun recognitionErrorMessage(error: Int): String = when (error) {
+        SpeechRecognizer.ERROR_AUDIO -> "Không thu được âm thanh từ microphone."
+        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Mạng không ổn định khi nhận diện giọng nói."
+        SpeechRecognizer.ERROR_NO_MATCH -> "Chưa nghe rõ câu nói. Hãy thử lại chậm hơn."
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Bộ nhận diện giọng nói đang bận."
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Ứng dụng chưa được cấp quyền microphone."
+        else -> "Không thể nhận diện giọng nói. Hãy thử lại."
     }
 
     fun stop(): Pair<File?, String> {

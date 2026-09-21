@@ -33,13 +33,17 @@ import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Button
@@ -60,7 +64,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -100,6 +106,9 @@ import com.linusv.englishcoach.data.SpeakingPrompt
 import com.linusv.englishcoach.data.SupportedLanguages
 import com.linusv.englishcoach.data.SupportedGeminiModels
 import com.linusv.englishcoach.data.ModelHealth
+import com.linusv.englishcoach.data.VocabularyProgressEntity
+import com.linusv.englishcoach.data.parseLesson
+import com.linusv.englishcoach.notifications.StudyReminderScheduler
 import com.linusv.englishcoach.voice.PronunciationSpeaker
 import com.linusv.englishcoach.voice.PcmAudioPlayer
 import com.linusv.englishcoach.voice.GeminiLiveConversation
@@ -111,6 +120,17 @@ fun EnglishCoachApp(container: com.linusv.englishcoach.di.AppContainer) {
     val viewModel: MainViewModel = viewModel(factory = MainViewModelFactory(container))
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    LaunchedEffect(state.profile?.remindersEnabled, state.profile?.reminderHour) {
+        state.profile?.let { profile ->
+            if (profile.remindersEnabled) {
+                StudyReminderScheduler.schedule(context, profile.reminderHour)
+                if (android.os.Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            } else StudyReminderScheduler.cancel(context)
+        }
+    }
     Surface(Modifier.fillMaxSize()) {
         when {
             state.user == null -> LoginScreen(state.error, state.isBusy) { (context as? Activity)?.let(viewModel::signIn) }
@@ -206,10 +226,14 @@ private fun MainShell(state: AppUiState, viewModel: MainViewModel) {
             composable("lesson") { LessonScreen(state, viewModel, navController) }
             composable("conversation") { ConversationScreen(state, navController) }
             composable("flashcards") { FlashcardsScreen(state, navController) }
+            composable("vocabulary") { VocabularyScreen(viewModel) }
+            composable("review") { ReviewScreen(state, viewModel, navController) }
+            composable("history") { HistoryScreen(viewModel, navController) }
+            composable("quiz") { QuickQuizScreen(viewModel, navController) }
             composable("exercise") { ExerciseScreen(state, navController) }
             composable("live") { LiveConversationScreen(state, navController) }
             composable("practice") { PracticeScreen(state, viewModel, navController) }
-            composable("progress") { ProgressScreen(viewModel) }
+            composable("progress") { ProgressScreen(state, viewModel) }
             composable("settings") { SettingsScreen(state, viewModel) }
         }
     }
@@ -217,7 +241,13 @@ private fun MainShell(state: AppUiState, viewModel: MainViewModel) {
 
 @Composable
 private fun BottomNav(navController: NavHostController) {
-    val items = listOf("home" to ("Học" to Icons.Default.Home), "progress" to ("Tiến độ" to Icons.Default.BarChart), "settings" to ("Cài đặt" to Icons.Default.Settings))
+    val items = listOf(
+        "home" to ("Học" to Icons.Default.Home),
+        "review" to ("Ôn tập" to Icons.Default.AutoStories),
+        "vocabulary" to ("Từ vựng" to Icons.Default.MenuBook),
+        "progress" to ("Tiến độ" to Icons.Default.BarChart),
+        "settings" to ("Cài đặt" to Icons.Default.Settings),
+    )
     NavigationBar(
         modifier = Modifier.navigationBarsPadding(),
         containerColor = MaterialTheme.colorScheme.surface,
@@ -225,6 +255,202 @@ private fun BottomNav(navController: NavHostController) {
     ) {
         val current = navController.currentBackStackEntryAsState().value?.destination?.route
         items.forEach { (route, item) -> NavigationBarItem(selected = current == route, onClick = { navController.navigate(route) { launchSingleTop = true; popUpTo("home") { saveState = true } } }, icon = { Icon(item.second, item.first) }, label = { Text(item.first) }) }
+    }
+}
+
+@Composable
+private fun HistoryScreen(viewModel: MainViewModel, nav: NavHostController) {
+    val lessons by viewModel.lessons.collectAsStateWithLifecycle(initialValue = emptyList())
+    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) { IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Quay lại") }; Text("Lịch sử bài học", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        if (lessons.isEmpty()) {
+            EmptyState("Chưa có bài học", "Các bài học bạn tạo sẽ được lưu ở đây.") { nav.navigate("home") }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
+                items(lessons, key = { it.id }) { lesson ->
+                    Card(onClick = { viewModel.openLesson(lesson.id) { nav.navigate("lesson") } }, modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.AutoStories, "Bài học", tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) { Text(lesson.title, fontWeight = FontWeight.Bold); Text("${lesson.topic} • ${lesson.level}", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            Text("Mở", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReviewScreen(state: AppUiState, viewModel: MainViewModel, nav: NavHostController) {
+    val due by viewModel.dueVocabulary.collectAsStateWithLifecycle(initialValue = emptyList())
+    var index by remember(due) { mutableIntStateOf(0) }
+    var revealed by remember(due, index) { mutableStateOf(false) }
+    val current = due.getOrNull(index)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("Ôn tập hôm nay", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text(if (due.isEmpty()) "Bạn đã hoàn thành các từ đến hạn." else "${index + 1}/${due.size} từ đến hạn", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedButton(onClick = { nav.navigate("quiz") }, modifier = Modifier.fillMaxWidth()) { Text("Làm quiz nhanh từ kho từ vựng") }
+        if (current == null) {
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Tuyệt vời!", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("Hãy tạo bài học mới hoặc quay lại vào ngày mai để tiếp tục ôn tập.")
+                    Button(onClick = { nav.navigate("home") }) { Text("Tạo bài học") }
+                }
+            }
+        } else {
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Nhớ nghĩa của từ này?", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(current.term, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    if (revealed) {
+                        if (current.meaningVi.isNotBlank()) Text(current.meaningVi, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, textAlign = TextAlign.Center)
+                        if (current.exampleTarget.isNotBlank()) Text(current.exampleTarget, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, textAlign = TextAlign.Center)
+                        Text("Hãy tự nói nghĩa hoặc đặt một câu trước khi chọn kết quả.", textAlign = TextAlign.Center)
+                    }
+                    OutlinedButton(onClick = { revealed = !revealed }) { Text(if (revealed) "Ẩn gợi ý" else "Hiện gợi ý") }
+                }
+            }
+            Text("Bạn nhớ từ này đến đâu?", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Again" to "Quên", "Hard" to "Khó", "Good" to "Nhớ", "Easy" to "Dễ").forEach { (label, text) ->
+                    OutlinedButton(onClick = {
+                        viewModel.reviewVocabulary(current.term, label)
+                        if (index + 1 < due.size) index++ else index = due.size
+                        revealed = false
+                    }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text(text) }
+                }
+            }
+            Text("Từ này sẽ được lên lịch lại tự động theo mức độ ghi nhớ.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun QuickQuizScreen(viewModel: MainViewModel, nav: NavHostController) {
+    val vocabulary by viewModel.vocabulary.collectAsStateWithLifecycle(initialValue = emptyList())
+    var index by remember(vocabulary) { mutableIntStateOf(0) }
+    var score by remember(vocabulary) { mutableIntStateOf(0) }
+    var answered by remember(vocabulary) { mutableStateOf(false) }
+    var selectedTerm by remember(vocabulary) { mutableStateOf<String?>(null) }
+    val questions = remember(vocabulary) { vocabulary.filter { it.meaningVi.isNotBlank() }.take(10) }
+    val current = questions.getOrNull(index)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) { IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Quay lại") }; Text("Quiz nhanh", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        if (current == null) {
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Kết quả", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("$score/${questions.size}", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text("Quiz giúp phát hiện những từ cần đưa vào ôn tập nhiều hơn.", textAlign = TextAlign.Center)
+                    Button(onClick = { nav.navigate("review") }) { Text("Ôn lại từ khó") }
+                }
+            }
+        } else {
+            Text("Câu ${index + 1}/${questions.size} • Điểm $score", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Nghĩa nào đúng với từ này?", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(current.term, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                }
+            }
+            val options = remember(current.term, vocabulary) { (listOf(current) + vocabulary.filter { it.term != current.term }.shuffled().take(3)).shuffled() }
+            options.forEach { option ->
+                OutlinedButton(onClick = {
+                    if (!answered) { selectedTerm = option.term; if (option.term == current.term) score++; answered = true }
+                }, modifier = Modifier.fillMaxWidth(), enabled = !answered) { Text(option.meaningVi.ifBlank { option.term }) }
+            }
+            if (answered) {
+                Text(if (selectedTerm == current.term) "Chính xác! ${current.meaningVi}" else "Đáp án đúng: ${current.meaningVi}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Button(onClick = { index++; answered = false; selectedTerm = null }, modifier = Modifier.fillMaxWidth()) { Text(if (index + 1 == questions.size) "Xem kết quả" else "Câu tiếp theo") }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VocabularyScreen(viewModel: MainViewModel) {
+    val lessons by viewModel.lessons.collectAsStateWithLifecycle(initialValue = emptyList())
+    val progress by viewModel.vocabulary.collectAsStateWithLifecycle(initialValue = emptyList())
+    var query by remember { mutableStateOf("") }
+    val words = remember(lessons) {
+        lessons
+            .flatMap { lesson -> runCatching { parseLesson(lesson.payloadJson).vocabulary }.getOrDefault(emptyList()) }
+            .distinctBy { it.term.trim().lowercase() }
+    }
+    val filteredWords = words.filter { word ->
+        query.isBlank() || listOf(word.term, word.meaningVi, word.exampleTarget)
+            .any { it.contains(query.trim(), ignoreCase = true) }
+    }
+
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Spacer(Modifier.height(12.dp))
+        Text("Từ vựng", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text(
+            if (words.isEmpty()) "Các từ mới trong bài học sẽ được lưu ở đây."
+            else "${words.size} từ đang được lưu",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Tìm từ vựng") },
+            singleLine = true,
+        )
+        if (filteredWords.isEmpty()) {
+            Box(
+                Modifier.fillMaxWidth().weight(1f).padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        if (words.isEmpty()) "Chưa có từ vựng" else "Không tìm thấy từ phù hợp",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        if (words.isEmpty()) "Hãy tạo một bài học để bắt đầu lưu từ mới." else "Thử tìm bằng từ tiếng Anh hoặc nghĩa tiếng Việt.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                contentPadding = PaddingValues(bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(filteredWords, key = { it.term }) { word ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(word.term, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                                val favorite = progress.firstOrNull { it.term == word.term }?.isFavorite == true
+                                IconButton(onClick = { viewModel.toggleFavorite(word.term, !favorite) }) { Icon(if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, "${if (favorite) "Bỏ lưu" else "Lưu"} ${word.term}", tint = if (favorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
+                                Text(word.partOfSpeech, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+                            }
+                            Text(
+                                listOfNotNull(word.pronunciation, word.romanization?.takeIf { it.isNotBlank() })
+                                    .joinToString(" • "),
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Text(word.meaningVi, fontWeight = FontWeight.SemiBold)
+                            Text(word.exampleTarget, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                            Text(word.exampleVi, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -315,6 +541,7 @@ private fun HomeScreen(state: AppUiState, viewModel: MainViewModel, nav: NavHost
     var topic by remember { mutableStateOf("daily life") }
     var imageAction by remember { mutableStateOf("lesson") }
     val profile = state.profile ?: return
+    val due by viewModel.dueCount.collectAsStateWithLifecycle(initialValue = 0)
     val context = LocalContext.current
     val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -340,6 +567,20 @@ private fun HomeScreen(state: AppUiState, viewModel: MainViewModel, nav: NavHost
         LanguageChoiceRow(profile.languageCode, viewModel::switchLanguage)
         Text("Cấp độ hiện tại • ${SupportedLanguages.find(profile.languageCode).levelSystem}", fontWeight = FontWeight.SemiBold)
         ChoiceRow(SupportedLanguages.find(profile.languageCode).levels, profile.level, viewModel::switchLevel)
+        Card(onClick = { nav.navigate("review") }, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (due > 0) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surfaceVariant)) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Default.AutoStories, "Ôn tập", tint = MaterialTheme.colorScheme.primary)
+                Column(Modifier.weight(1f)) {
+                    Text(if (due > 0) "Bạn có $due từ cần ôn" else "Ôn tập hôm nay", fontWeight = FontWeight.Bold)
+                    Text(if (due > 0) "Dành vài phút để củng cố trí nhớ." else "Các từ mới sẽ xuất hiện ở đây khi đến hạn.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text("Mở", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+            }
+        }
+        if (state.isBusy) {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+            Text("Đang chuẩn bị nội dung học… bạn có thể tiếp tục chờ ở màn hình này.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(24.dp)) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("${SupportedLanguages.find(profile.languageCode).displayNameVi} • ${profile.level} • ${profile.sessionMinutes} phút", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -367,7 +608,10 @@ private fun HomeScreen(state: AppUiState, viewModel: MainViewModel, nav: NavHost
             }
         }
         state.lesson?.let { lesson ->
-            Text("Bài gần nhất", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Bài gần nhất", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                TextButton(onClick = { nav.navigate("history") }) { Text("Xem lịch sử") }
+            }
             LessonSummaryCard(lesson) { nav.navigate("lesson") }
         }
     }
@@ -394,7 +638,7 @@ private fun LessonScreen(state: AppUiState, viewModel: MainViewModel, nav: NavHo
     val pcmPlayer = remember { PcmAudioPlayer() }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { pcmPlayer.stop(); speaker.shutdown() } }
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text(lesson.payload.title) }, navigationIcon = { IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Quay lại") } })
+        TopAppBar(title = { Text(lesson.payload.title) }, navigationIcon = { IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Quay lại") } }, actions = { IconButton(enabled = !state.isBusy, onClick = { viewModel.generateLesson(lesson.payload.topic) }) { Icon(Icons.Default.Refresh, "Tạo lại bài học") } })
         LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { Text("Từ vựng", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
             items(lesson.payload.vocabulary) { word ->
@@ -427,15 +671,17 @@ private fun PracticeScreen(state: AppUiState, viewModel: MainViewModel, nav: Nav
     var recording by remember { mutableStateOf(false) }
     var transcript by remember { mutableStateOf("") }
     var audioFile by remember { mutableStateOf<java.io.File?>(null) }
+    var voiceError by remember { mutableStateOf<String?>(null) }
     val voiceTag = state.profile?.voiceTag ?: "en-US"
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) { audioFile = recorder.start(voiceTag) { transcript = it }; recording = true } }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) { voiceError = null; audioFile = recorder.start(voiceTag, { transcript = it }, { voiceError = it }); recording = true } else voiceError = "Cần cấp quyền microphone để luyện nói." }
     androidx.compose.runtime.DisposableEffect(Unit) { onDispose { if (recording) recorder.cancel(); pcmPlayer.stop(); speaker.shutdown() } }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Quay lại") }; Text("Luyện nói", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer), shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("Đọc câu này", color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold); Text(prompt.targetText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold); IconButton({ viewModel.synthesizeSpeech(prompt.targetText, { pcmPlayer.play(it) }, { speaker.speak(prompt.targetText, voiceTag) }) }, Modifier.size(52.dp).semantics { role = Role.Button }) { Icon(Icons.Default.VolumeUp, "Nghe câu mẫu", Modifier.size(30.dp)) } } }
         Text("Mẹo: ${prompt.pronunciationTips.joinToString(" • ")}", color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (transcript.isNotBlank()) Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) { Text("Bạn đang nói", fontWeight = FontWeight.Bold); Text(transcript) } }
-        Button(onClick = { if (recording) { val result = recorder.stop(); audioFile = result.first; transcript = result.second.ifBlank { transcript }; recording = false; viewModel.scoreSpeech(prompt.targetText, transcript, audioFile) } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { audioFile = recorder.start(voiceTag) { transcript = it }; recording = true } else permission.launch(Manifest.permission.RECORD_AUDIO) }, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth().height(56.dp)) { Icon(if (recording) Icons.Default.CheckCircle else Icons.Default.Mic, null); Spacer(Modifier.width(8.dp)); Text(if (recording) "Dừng và chấm bài" else "Bắt đầu ghi âm") }
+        Button(onClick = { if (recording) { val result = recorder.stop(); audioFile = result.first; transcript = result.second.ifBlank { transcript }; recording = false; viewModel.scoreSpeech(prompt.targetText, transcript, audioFile) } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { voiceError = null; audioFile = recorder.start(voiceTag, { transcript = it }, { voiceError = it }); recording = true } else permission.launch(Manifest.permission.RECORD_AUDIO) }, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth().height(56.dp)) { Icon(if (recording) Icons.Default.CheckCircle else Icons.Default.Mic, null); Spacer(Modifier.width(8.dp)); Text(if (recording) "Dừng và chấm bài" else "Bắt đầu ghi âm") }
+        voiceError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (state.isBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
         state.speakingResult?.let { result ->
             Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (result.overall >= 75) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer)) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text("Điểm ước lượng: ${result.overall}/100", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text("Nội dung ${result.contentAccuracy} • Phát âm ${result.pronunciation} • Độ trôi chảy ${result.fluency}"); result.feedback?.issues?.forEach { Text("• $it") }; result.feedback?.tips?.forEach { Text("Gợi ý: $it") }; Text(if (result.isComplete) "Đã phân tích transcript + audio" else "Chỉ có điểm transcript vì Gemini chưa phản hồi", fontSize = 12.sp) } }
@@ -444,13 +690,18 @@ private fun PracticeScreen(state: AppUiState, viewModel: MainViewModel, nav: Nav
 }
 
 @Composable
-private fun ProgressScreen(viewModel: MainViewModel) {
+private fun ProgressScreen(state: AppUiState, viewModel: MainViewModel) {
     val attempts by viewModel.speakingAttempts.collectAsStateWithLifecycle(initialValue = emptyList())
     val vocabulary by viewModel.vocabularyCount.collectAsStateWithLifecycle(initialValue = 0)
     val due by viewModel.dueCount.collectAsStateWithLifecycle(initialValue = 0)
+    val totalMinutes by viewModel.totalStudyMinutes.collectAsStateWithLifecycle(initialValue = 0)
+    val sessions by viewModel.studySessions.collectAsStateWithLifecycle(initialValue = emptyList())
+    val todayStart = remember { java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() }
+    val todayMinutes = sessions.filter { it.createdAt >= todayStart }.sumOf { it.minutes }
+    val goalMinutes = state.profile?.dailyGoalMinutes ?: 15
     val commonIssues = attempts.flatMap { attempt -> runCatching { kotlinx.serialization.json.Json.decodeFromString<PronunciationFeedback>(attempt.feedbackJson).issues }.getOrDefault(emptyList()) }
         .filter { it.isNotBlank() }.groupingBy { it }.eachCount().toList().sortedByDescending { it.second }.take(5)
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) { Text("Tiến độ", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { StatCard("Từ đang học", vocabulary.toString(), Modifier.weight(1f)); StatCard("Đến hạn", due.toString(), Modifier.weight(1f)); StatCard("Lượt nói", attempts.size.toString(), Modifier.weight(1f)) }; if (commonIssues.isNotEmpty()) { Text("Lỗi phát âm cần ưu tiên", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); commonIssues.forEach { (issue, count) -> Card(Modifier.fillMaxWidth()) { Row(modifier = Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text(issue, Modifier.weight(1f)); Text("${count} lần", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) } } } }; Text("Các lượt luyện nói gần đây", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (attempts.isEmpty()) Text("Chưa có lượt nào. Mở một bài học và thử đọc thành tiếng nhé.", color = MaterialTheme.colorScheme.onSurfaceVariant) else attempts.take(10).forEach { attempt -> Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.GraphicEq, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(attempt.targetText, maxLines = 2); Text("${attempt.overall}/100 • ${attempt.transcript}", color = MaterialTheme.colorScheme.onSurfaceVariant) }; Text(if (attempt.overall >= 75) "Đạt" else "Luyện thêm", color = if (attempt.overall >= 75) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) } } } }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) { Text("Tiến độ", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text("Mỗi lượt học được lưu trên thiết bị để bạn theo dõi tiến bộ.", color = MaterialTheme.colorScheme.onSurfaceVariant); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { StatCard("Từ đang học", vocabulary.toString(), Modifier.weight(1f)); StatCard("Đến hạn", due.toString(), Modifier.weight(1f)); StatCard("Lượt nói", attempts.size.toString(), Modifier.weight(1f)) }; Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Mục tiêu hôm nay", fontWeight = FontWeight.Bold); Text("$todayMinutes/$goalMinutes phút", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }; LinearProgressIndicator(progress = { (todayMinutes.toFloat() / goalMinutes.coerceAtLeast(1)).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth()); Text("Tổng cộng: ${totalMinutes} phút • ${sessions.size} phiên", color = MaterialTheme.colorScheme.onSurfaceVariant) } }; if (commonIssues.isNotEmpty()) { Text("Lỗi phát âm cần ưu tiên", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); commonIssues.forEach { (issue, count) -> Card(Modifier.fillMaxWidth()) { Row(modifier = Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text(issue, Modifier.weight(1f)); Text("${count} lần", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) } } } }; Text("Các lượt luyện nói gần đây", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (attempts.isEmpty()) Text("Chưa có lượt nào. Mở một bài học và thử đọc thành tiếng nhé.", color = MaterialTheme.colorScheme.onSurfaceVariant) else attempts.take(10).forEach { attempt -> Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.GraphicEq, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(attempt.targetText, maxLines = 2); Text("${attempt.overall}/100 • ${attempt.transcript}", color = MaterialTheme.colorScheme.onSurfaceVariant) }; Text(if (attempt.overall >= 75) "Đạt" else "Luyện thêm", color = if (attempt.overall >= 75) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) } } } }
 }
 
 @Composable
@@ -464,7 +715,22 @@ private fun SettingsScreen(state: AppUiState, viewModel: MainViewModel) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Text("Cài đặt", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text(state.user?.email.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        state.profile?.let { Text("Đang học: ${SupportedLanguages.find(it.languageCode).displayNameVi} • ${it.level}") }
+        state.profile?.let { profile ->
+            Text("Đang học: ${SupportedLanguages.find(profile.languageCode).displayNameVi} • ${profile.level}")
+            Text("Mục tiêu mỗi ngày: ${profile.dailyGoalMinutes} phút", fontWeight = FontWeight.SemiBold)
+            ChoiceRow(listOf("10", "15", "25", "40", "60"), profile.dailyGoalMinutes.toString()) { viewModel.updateDailyGoal(it.toInt()) }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                Column(Modifier.weight(1f)) {
+                    Text("Nhắc học mỗi ngày", fontWeight = FontWeight.SemiBold)
+                    Text("Nhận thông báo nhắc ôn tập trên thiết bị.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                }
+                Switch(checked = profile.remindersEnabled, onCheckedChange = { viewModel.updateReminders(it) })
+            }
+            if (profile.remindersEnabled) {
+                Text("Giờ nhắc: ${profile.reminderHour}:00", fontWeight = FontWeight.SemiBold)
+                ChoiceRow(listOf("7", "9", "12", "18", "20", "21"), profile.reminderHour.toString()) { viewModel.updateReminders(true, it.toInt()) }
+            }
+        }
         Text("Model AI", fontWeight = FontWeight.SemiBold)
         Text("Đổi sang Flash Lite nếu model hiện tại thường báo quá tải.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         ChoiceRow(modelOptions, state.modelName, viewModel::switchModel)

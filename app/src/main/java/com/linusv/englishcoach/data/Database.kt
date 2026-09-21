@@ -38,8 +38,23 @@ interface LearnerDao {
     @Insert
     suspend fun insertLesson(lesson: LessonEntity): Long
 
+    @Query("SELECT * FROM lessons WHERE id = :id LIMIT 1")
+    suspend fun lesson(id: Long): LessonEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveVocabulary(item: VocabularyProgressEntity)
+
+    @Query("SELECT * FROM vocabulary_progress WHERE languageCode = :languageCode AND nextReviewAt <= :now ORDER BY nextReviewAt ASC")
+    fun dueVocabulary(languageCode: String, now: Long): Flow<List<VocabularyProgressEntity>>
+
+    @Query("SELECT * FROM vocabulary_progress WHERE languageCode = :languageCode ORDER BY reviewCount ASC, nextReviewAt ASC")
+    fun vocabulary(languageCode: String): Flow<List<VocabularyProgressEntity>>
+
+    @Query("SELECT * FROM vocabulary_progress WHERE languageCode = :languageCode AND term = :term LIMIT 1")
+    suspend fun vocabulary(languageCode: String, term: String): VocabularyProgressEntity?
+
+    @Query("UPDATE vocabulary_progress SET isFavorite = :favorite WHERE languageCode = :languageCode AND term = :term")
+    suspend fun setFavorite(languageCode: String, term: String, favorite: Boolean)
 
     @Query("SELECT COUNT(*) FROM vocabulary_progress WHERE languageCode = :languageCode")
     fun vocabularyCount(languageCode: String): Flow<Int>
@@ -52,11 +67,26 @@ interface LearnerDao {
 
     @Insert
     suspend fun insertSpeakingAttempt(attempt: SpeakingAttemptEntity)
+
+    @Insert
+    suspend fun insertContent(item: ContentHistoryEntity): Long
+
+    @Query("SELECT * FROM content_history WHERE languageCode = :languageCode ORDER BY createdAt DESC")
+    fun contentHistory(languageCode: String): Flow<List<ContentHistoryEntity>>
+
+    @Insert
+    suspend fun insertSession(session: StudySessionEntity): Long
+
+    @Query("SELECT * FROM study_sessions WHERE languageCode = :languageCode ORDER BY createdAt DESC")
+    fun studySessions(languageCode: String): Flow<List<StudySessionEntity>>
+
+    @Query("SELECT COALESCE(SUM(minutes), 0) FROM study_sessions WHERE languageCode = :languageCode")
+    fun totalStudyMinutes(languageCode: String): Flow<Int>
 }
 
 @Database(
-    entities = [LearnerProfileEntity::class, LessonEntity::class, VocabularyProgressEntity::class, SpeakingAttemptEntity::class],
-    version = 2,
+    entities = [LearnerProfileEntity::class, LessonEntity::class, VocabularyProgressEntity::class, SpeakingAttemptEntity::class, ContentHistoryEntity::class, StudySessionEntity::class],
+    version = 4,
     exportSchema = false,
 )
 abstract class EnglishCoachDatabase : RoomDatabase() {

@@ -120,6 +120,9 @@ data class LearnerProfile(
     val interests: String = "Công việc và đời sống",
     val sessionMinutes: Int = 15,
     val voiceTag: String = "en-US",
+    val dailyGoalMinutes: Int = 15,
+    val remindersEnabled: Boolean = false,
+    val reminderHour: Int = 20,
     val completedOnboarding: Boolean = false,
 )
 
@@ -174,6 +177,9 @@ data class LearnerProfileEntity(
     val interests: String,
     val sessionMinutes: Int,
     val voiceTag: String,
+    val dailyGoalMinutes: Int,
+    val remindersEnabled: Boolean,
+    val reminderHour: Int,
     val completedOnboarding: Boolean,
     val isActive: Boolean,
 )
@@ -196,6 +202,31 @@ data class VocabularyProgressEntity(
     val intervalDays: Int = 0,
     val nextReviewAt: Long = 0,
     val reviewCount: Int = 0,
+    val lastReviewedAt: Long = 0,
+    val status: String = "new",
+    val isFavorite: Boolean = false,
+    val meaningVi: String = "",
+    val exampleTarget: String = "",
+)
+
+@Entity(tableName = "content_history")
+data class ContentHistoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val createdAt: Long,
+    val type: String,
+    val title: String,
+    val payloadJson: String,
+    val languageCode: String,
+)
+
+@Entity(tableName = "study_sessions")
+data class StudySessionEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val createdAt: Long,
+    val minutes: Int,
+    val activity: String,
+    val completed: Boolean,
+    val languageCode: String,
 )
 
 @Entity(tableName = "speaking_attempts")

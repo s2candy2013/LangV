@@ -15,6 +15,7 @@ import com.google.firebase.ai.type.generationConfig
 import com.linusv.englishcoach.BuildConfig
 import com.linusv.englishcoach.domain.combinedScore
 import com.linusv.englishcoach.domain.contentAccuracy
+import com.linusv.englishcoach.domain.nextReviewInterval
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -360,6 +361,11 @@ class LocalLessonRepository(private val dao: LearnerDao, private val generator: 
     val speakingAttempts = activeLanguage.flatMapLatest(dao::speakingAttempts)
     val vocabularyCount = activeLanguage.flatMapLatest(dao::vocabularyCount)
     val dueCount = activeLanguage.flatMapLatest { dao.dueCount(it, System.currentTimeMillis()) }
+    val dueVocabulary = activeLanguage.flatMapLatest { dao.dueVocabulary(it, System.currentTimeMillis()) }
+    val vocabulary = activeLanguage.flatMapLatest { dao.vocabulary(it) }
+    val studySessions = activeLanguage.flatMapLatest(dao::studySessions)
+    val totalStudyMinutes = activeLanguage.flatMapLatest(dao::totalStudyMinutes)
+    val contentHistory = activeLanguage.flatMapLatest(dao::contentHistory)
 
     fun currentModelName(): String? = generator.currentModelName()
 
@@ -390,7 +396,7 @@ class LocalLessonRepository(private val dao: LearnerDao, private val generator: 
         val payload = generator.generateLesson(profile, topic)
         val entity = LessonEntity(0, System.currentTimeMillis(), payload.title, payload.topic, payload.level, json.encodeToString(payload), profile.languageCode)
         val id = dao.insertLesson(entity)
-        payload.vocabulary.forEach { dao.saveVocabulary(VocabularyProgressEntity(profile.languageCode, it.term, 0, System.currentTimeMillis(), 0)) }
+        payload.vocabulary.forEach { dao.saveVocabulary(VocabularyProgressEntity(profile.languageCode, it.term, meaningVi = it.meaningVi, exampleTarget = it.exampleTarget)) }
         return GeneratedLesson(id, entity.createdAt, payload)
     }
 
@@ -398,22 +404,52 @@ class LocalLessonRepository(private val dao: LearnerDao, private val generator: 
         val payload = generator.generateLessonFromImage(profile, imageBytes, mimeType)
         val entity = LessonEntity(0, System.currentTimeMillis(), payload.title, payload.topic, payload.level, json.encodeToString(payload), profile.languageCode)
         val id = dao.insertLesson(entity)
-        payload.vocabulary.forEach { dao.saveVocabulary(VocabularyProgressEntity(profile.languageCode, it.term, 0, System.currentTimeMillis(), 0)) }
+        payload.vocabulary.forEach { dao.saveVocabulary(VocabularyProgressEntity(profile.languageCode, it.term, meaningVi = it.meaningVi, exampleTarget = it.exampleTarget)) }
         return GeneratedLesson(id, entity.createdAt, payload)
     }
 
     suspend fun generateFlashcardsFromImage(profile: LearnerProfile, imageBytes: ByteArray, mimeType: String): FlashcardSet =
-        generator.generateFlashcardsFromImage(profile, imageBytes, mimeType)
+        generator.generateFlashcardsFromImage(profile, imageBytes, mimeType).also { cards ->
+            dao.insertContent(ContentHistoryEntity(0, System.currentTimeMillis(), "flashcards", cards.title, json.encodeToString(cards), profile.languageCode))
+            cards.cards.forEach { dao.saveVocabulary(VocabularyProgressEntity(profile.languageCode, it.term, meaningVi = it.meaningVi, exampleTarget = it.exampleTarget)) }
+        }
 
     suspend fun gradeExerciseFromImage(profile: LearnerProfile, imageBytes: ByteArray, mimeType: String): ExerciseFeedback =
-        generator.gradeExerciseFromImage(profile, imageBytes, mimeType)
+        generator.gradeExerciseFromImage(profile, imageBytes, mimeType).also { result ->
+            dao.insertContent(ContentHistoryEntity(0, System.currentTimeMillis(), "exercise", result.title, json.encodeToString(result), profile.languageCode))
+        }
 
     suspend fun generateConversation(profile: LearnerProfile, topic: String): ConversationPayload =
-        generator.generateConversation(profile, topic)
+        generator.generateConversation(profile, topic).also { conversation ->
+            dao.insertContent(ContentHistoryEntity(0, System.currentTimeMillis(), "conversation", conversation.title, json.encodeToString(conversation), profile.languageCode))
+        }
+
+    suspend fun reviewVocabulary(languageCode: String, term: String, label: String) {
+        val current = dao.vocabulary(languageCode, term) ?: return
+        val interval = nextReviewInterval(label, current.intervalDays)
+        val now = System.currentTimeMillis()
+        dao.saveVocabulary(current.copy(
+            intervalDays = interval,
+            nextReviewAt = now + interval * 24 * 60 * 60 * 1000L,
+            reviewCount = current.reviewCount + 1,
+            lastReviewedAt = now,
+            status = label.lowercase(),
+        ))
+    }
+
+    suspend fun setFavorite(languageCode: String, term: String, favorite: Boolean) = dao.setFavorite(languageCode, term, favorite)
+
+    suspend fun saveStudySession(languageCode: String, minutes: Int, activity: String, completed: Boolean = true) {
+        dao.insertSession(StudySessionEntity(0, System.currentTimeMillis(), minutes, activity, completed, languageCode))
+    }
 
     suspend fun synthesizeSpeech(profile: LearnerProfile, text: String): ByteArray? = generator.synthesizeSpeech(profile, text)
 
     suspend fun latestLesson(languageCode: String = activeLanguage.value): GeneratedLesson? = dao.latestLesson(languageCode)?.let {
+        GeneratedLesson(it.id, it.createdAt, parseLesson(it.payloadJson))
+    }
+
+    suspend fun lesson(id: Long): GeneratedLesson? = dao.lesson(id)?.let {
         GeneratedLesson(it.id, it.createdAt, parseLesson(it.payloadJson))
     }
 
@@ -428,5 +464,5 @@ class LocalLessonRepository(private val dao: LearnerDao, private val generator: 
     }
 }
 
-private fun LearnerProfileEntity.toModel() = LearnerProfile(languageCode, level, goal, interests, sessionMinutes, voiceTag, completedOnboarding)
-private fun LearnerProfile.toEntity() = LearnerProfileEntity(languageCode, level, goal, interests, sessionMinutes, voiceTag, completedOnboarding, true)
+private fun LearnerProfileEntity.toModel() = LearnerProfile(languageCode, level, goal, interests, sessionMinutes, voiceTag, dailyGoalMinutes, remindersEnabled, reminderHour, completedOnboarding)
+private fun LearnerProfile.toEntity() = LearnerProfileEntity(languageCode, level, goal, interests, sessionMinutes, voiceTag, dailyGoalMinutes, remindersEnabled, reminderHour, completedOnboarding, true)

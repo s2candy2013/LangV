@@ -51,6 +51,11 @@ class MainViewModel(
     val speakingAttempts = repository.speakingAttempts
     val vocabularyCount = repository.vocabularyCount
     val dueCount = repository.dueCount
+    val dueVocabulary = repository.dueVocabulary
+    val vocabulary = repository.vocabulary
+    val studySessions = repository.studySessions
+    val totalStudyMinutes = repository.totalStudyMinutes
+    val contentHistory = repository.contentHistory
 
     init {
         if (_state.value.user != null) loadProfile()
@@ -205,12 +210,24 @@ class MainViewModel(
         viewModelScope.launch { _state.value = _state.value.copy(lesson = repository.latestLesson()) }
     }
 
+    fun openLesson(id: Long, onLoaded: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.lesson(id)?.let { lesson ->
+                _state.value = _state.value.copy(lesson = lesson, speakingResult = null)
+                onLoaded()
+            }
+        }
+    }
+
     fun scoreSpeech(targetText: String, transcript: String, audio: File?) {
         val profile = _state.value.profile ?: return
         viewModelScope.launch {
             setBusy(true)
             runCatching { repository.scoreSpeech(profile, targetText, transcript, audio) }
-                .onSuccess { _state.value = _state.value.copy(speakingResult = it, error = null) }
+                .onSuccess {
+                    _state.value = _state.value.copy(speakingResult = it, error = null)
+                    repository.saveStudySession(profile.languageCode, profile.sessionMinutes, "speaking")
+                }
                 .onFailure { _state.value = _state.value.copy(error = "Không chấm được audio: ${it.message ?: "hãy thử lại"}") }
             refreshModelHealth()
             audio?.delete()
@@ -219,6 +236,35 @@ class MainViewModel(
     }
 
     fun clearSpeakingResult() { _state.value = _state.value.copy(speakingResult = null) }
+    fun reviewVocabulary(term: String, label: String) {
+        val languageCode = _state.value.profile?.languageCode ?: return
+        viewModelScope.launch {
+            repository.reviewVocabulary(languageCode, term, label)
+            repository.saveStudySession(languageCode, 2, "review")
+        }
+    }
+
+    fun toggleFavorite(term: String, favorite: Boolean) {
+        val languageCode = _state.value.profile?.languageCode ?: return
+        viewModelScope.launch { repository.setFavorite(languageCode, term, favorite) }
+    }
+
+    fun completeStudySession(minutes: Int, activity: String) {
+        val languageCode = _state.value.profile?.languageCode ?: return
+        viewModelScope.launch { repository.saveStudySession(languageCode, minutes, activity) }
+    }
+
+    fun updateDailyGoal(minutes: Int) {
+        val current = _state.value.profile ?: return
+        val updated = current.copy(dailyGoalMinutes = minutes.coerceIn(5, 120))
+        viewModelScope.launch { repository.saveProfile(updated); _state.value = _state.value.copy(profile = updated) }
+    }
+
+    fun updateReminders(enabled: Boolean, hour: Int = _state.value.profile?.reminderHour ?: 20) {
+        val current = _state.value.profile ?: return
+        val updated = current.copy(remindersEnabled = enabled, reminderHour = hour.coerceIn(0, 23))
+        viewModelScope.launch { repository.saveProfile(updated); _state.value = _state.value.copy(profile = updated) }
+    }
     fun clearError() { _state.value = _state.value.copy(error = null) }
     fun reportError(message: String) { _state.value = _state.value.copy(error = message) }
     fun refreshModelHealth() {

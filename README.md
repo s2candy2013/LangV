@@ -54,6 +54,9 @@ Không chia sẻ APK được build với Debug App Check và không commit debu
 - Ghi AAC/M4A tạm trong cache, SpeechRecognizer lấy transcript, Gemini phân tích audio khi Firebase đã cấu hình.
 - Điểm tổng: 40% content accuracy, 40% pronunciation, 20% fluency.
 - Raw audio bị xóa sau khi chấm hoặc khi phiên kết thúc.
+- Ôn tập spaced repetition với 4 mức độ nhớ (Quên/Khó/Nhớ/Dễ), lưu nghĩa và ví dụ của từng từ.
+- Lưu lịch sử bài học, nội dung AI, phiên học và tổng thời gian học bằng Room; có màn hình ôn tập, lịch sử và tiến độ.
+- Có quiz nhanh, đánh dấu từ yêu thích, mục tiêu học mỗi ngày và thông báo nhắc học định kỳ.
 
 ## Lưu ý phát hành APK cá nhân
 

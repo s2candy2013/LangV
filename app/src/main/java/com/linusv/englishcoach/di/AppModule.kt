@@ -31,9 +31,29 @@ class AppContainer(context: Context) {
         }
     }
 
+    private val migration2To3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE vocabulary_progress ADD COLUMN lastReviewedAt INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE vocabulary_progress ADD COLUMN status TEXT NOT NULL DEFAULT 'new'")
+            db.execSQL("ALTER TABLE vocabulary_progress ADD COLUMN isFavorite INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE vocabulary_progress ADD COLUMN meaningVi TEXT NOT NULL DEFAULT ''")
+            db.execSQL("ALTER TABLE vocabulary_progress ADD COLUMN exampleTarget TEXT NOT NULL DEFAULT ''")
+            db.execSQL("CREATE TABLE IF NOT EXISTS content_history (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `createdAt` INTEGER NOT NULL, `type` TEXT NOT NULL, `title` TEXT NOT NULL, `payloadJson` TEXT NOT NULL, `languageCode` TEXT NOT NULL)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS study_sessions (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `createdAt` INTEGER NOT NULL, `minutes` INTEGER NOT NULL, `activity` TEXT NOT NULL, `completed` INTEGER NOT NULL, `languageCode` TEXT NOT NULL)")
+        }
+    }
+
+    private val migration3To4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE profiles ADD COLUMN dailyGoalMinutes INTEGER NOT NULL DEFAULT 15")
+            db.execSQL("ALTER TABLE profiles ADD COLUMN remindersEnabled INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE profiles ADD COLUMN reminderHour INTEGER NOT NULL DEFAULT 20")
+        }
+    }
+
     private val database: EnglishCoachDatabase =
         Room.databaseBuilder(context, EnglishCoachDatabase::class.java, "english-coach.db")
-            .addMigrations(migration1To2)
+            .addMigrations(migration1To2, migration2To3, migration3To4)
             .build()
     private val generator: LessonGenerator =
         if ((context.applicationContext as EnglishCoachApplication).firebaseConfigured) FirebaseLessonGenerator(context) else DemoLessonGenerator()
