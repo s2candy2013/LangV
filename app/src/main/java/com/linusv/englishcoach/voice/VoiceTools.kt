@@ -3,11 +3,22 @@ package com.linusv.englishcoach.voice
 import android.content.Context
 import android.content.Intent
 import android.media.MediaRecorder
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import com.google.firebase.FirebaseApp
+import com.google.firebase.ai.FirebaseAI
+import com.google.firebase.ai.type.GenerativeBackend
+import com.google.firebase.ai.type.PublicPreviewAPI
+import com.google.firebase.ai.type.ResponseModality
+import com.google.firebase.ai.type.SpeechConfig
+import com.google.firebase.ai.type.Voice
+import com.google.firebase.ai.type.liveGenerationConfig
 import java.io.File
 import java.util.Locale
 
@@ -99,4 +110,52 @@ class PronunciationSpeaker(context: Context) : TextToSpeech.OnInitListener {
     }
 
     fun shutdown() = tts.shutdown()
+}
+
+class PcmAudioPlayer {
+    private var track: AudioTrack? = null
+
+    fun play(pcmBytes: ByteArray) {
+        stop()
+        val minBuffer = AudioTrack.getMinBufferSize(24000, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        track = AudioTrack.Builder()
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            .setAudioFormat(AudioFormat.Builder().setSampleRate(24000).setEncoding(AudioFormat.ENCODING_PCM_16BIT).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
+            .setBufferSizeInBytes(maxOf(minBuffer, pcmBytes.size))
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .build()
+            .also {
+                it.write(pcmBytes, 0, pcmBytes.size)
+                it.play()
+            }
+    }
+
+    fun stop() {
+        track?.runCatching { stop() }
+        track?.release()
+        track = null
+    }
+}
+
+@OptIn(PublicPreviewAPI::class)
+class GeminiLiveConversation {
+    private var session: com.google.firebase.ai.type.LiveSession? = null
+
+    suspend fun start(languageCode: String, level: String) {
+        val config = liveGenerationConfig {
+            responseModality = ResponseModality.AUDIO
+            speechConfig = SpeechConfig(Voice("Puck"), languageCode)
+        }
+        val liveModel = FirebaseAI.getInstance(FirebaseApp.getInstance(), GenerativeBackend.googleAI())
+            .liveModel("gemini-3.1-flash-live-preview", config)
+        session = liveModel.connect()
+        session?.send("You are a friendly language coach. Practice $languageCode with a learner at level $level. Speak clearly, ask one question at a time, and correct mistakes briefly.")
+        session?.startAudioConversation()
+    }
+
+    suspend fun stop() {
+        session?.stopAudioConversation()
+        session?.close()
+        session = null
+    }
 }

@@ -36,7 +36,7 @@ class AppContainer(context: Context) {
             .addMigrations(migration1To2)
             .build()
     private val generator: LessonGenerator =
-        if ((context.applicationContext as EnglishCoachApplication).firebaseConfigured) FirebaseLessonGenerator() else DemoLessonGenerator()
+        if ((context.applicationContext as EnglishCoachApplication).firebaseConfigured) FirebaseLessonGenerator(context) else DemoLessonGenerator()
     val repository = LocalLessonRepository(database.learnerDao(), generator)
     val auth = AuthRepository(context.applicationContext as EnglishCoachApplication)
 }

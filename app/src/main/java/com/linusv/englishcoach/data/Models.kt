@@ -74,6 +74,37 @@ data class LessonPayload(
 )
 
 @Serializable
+data class FlashcardSet(
+    val title: String,
+    val cards: List<VocabularyItem>,
+)
+
+@Serializable
+data class ConversationLine(
+    val speaker: String,
+    val targetText: String,
+    val translationVi: String,
+)
+
+@Serializable
+data class ConversationPayload(
+    val title: String,
+    val topic: String,
+    val lines: List<ConversationLine>,
+    val tips: List<String>,
+)
+
+@Serializable
+data class ExerciseFeedback(
+    val title: String,
+    val score: Int,
+    val answers: List<String>,
+    val mistakes: List<String>,
+    val explanations: List<String>,
+    val nextSteps: List<String>,
+)
+
+@Serializable
 data class PronunciationFeedback(
     val pronunciation: Int,
     val fluency: Int,
@@ -109,6 +140,31 @@ data class GeneratedLesson(
     val createdAt: Long = System.currentTimeMillis(),
     val payload: LessonPayload,
 )
+
+data class ModelHealth(
+    val modelName: String,
+    val requestCount: Int = 0,
+    val successCount: Int = 0,
+    val throttledCount: Int = 0,
+    val lastLatencyMs: Long? = null,
+    val lastFailure: String? = null,
+    val lastUsedAt: Long? = null,
+    val status: String = "Chưa có dữ liệu",
+)
+
+object SupportedGeminiModels {
+    // Models compatible with the current text/JSON lesson flow and audio input.
+    val generalUse = listOf(
+        "gemini-3.1-pro-preview",
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.1-flash-lite",
+        "gemini-3-flash-preview",
+    )
+}
 
 @Entity(tableName = "profiles")
 data class LearnerProfileEntity(

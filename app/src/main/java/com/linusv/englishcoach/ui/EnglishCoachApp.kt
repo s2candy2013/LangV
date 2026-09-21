@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Mic
@@ -90,10 +91,18 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.linusv.englishcoach.data.GeneratedLesson
+import com.linusv.englishcoach.data.FlashcardSet
+import com.linusv.englishcoach.data.ConversationPayload
+import com.linusv.englishcoach.data.ExerciseFeedback
+import com.linusv.englishcoach.data.PronunciationFeedback
 import com.linusv.englishcoach.data.LearnerProfile
 import com.linusv.englishcoach.data.SpeakingPrompt
 import com.linusv.englishcoach.data.SupportedLanguages
+import com.linusv.englishcoach.data.SupportedGeminiModels
+import com.linusv.englishcoach.data.ModelHealth
 import com.linusv.englishcoach.voice.PronunciationSpeaker
+import com.linusv.englishcoach.voice.PcmAudioPlayer
+import com.linusv.englishcoach.voice.GeminiLiveConversation
 import com.linusv.englishcoach.voice.VoiceRecorder
 import kotlinx.coroutines.launch
 
@@ -195,6 +204,10 @@ private fun MainShell(state: AppUiState, viewModel: MainViewModel) {
         NavHost(navController, startDestination = "home", Modifier.padding(padding)) {
             composable("home") { HomeScreen(state, viewModel, navController) }
             composable("lesson") { LessonScreen(state, viewModel, navController) }
+            composable("conversation") { ConversationScreen(state, navController) }
+            composable("flashcards") { FlashcardsScreen(state, navController) }
+            composable("exercise") { ExerciseScreen(state, navController) }
+            composable("live") { LiveConversationScreen(state, navController) }
             composable("practice") { PracticeScreen(state, viewModel, navController) }
             composable("progress") { ProgressScreen(viewModel) }
             composable("settings") { SettingsScreen(state, viewModel) }
@@ -215,24 +228,142 @@ private fun BottomNav(navController: NavHostController) {
     }
 }
 
+@Composable
+private fun ConversationScreen(state: AppUiState, nav: NavHostController) {
+    val conversation = state.conversation
+    if (conversation == null) { EmptyState("Chưa có hội thoại", "Quay về trang Học để tạo hội thoại.") { nav.navigate("home") }; return }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) { IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Quay lại") }; Text(conversation.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        Text("Chủ đề: ${conversation.topic}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        conversation.lines.forEach { line ->
+            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if (line.speaker.equals("A", true)) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text(line.speaker, fontWeight = FontWeight.Bold); Text(line.targetText, style = MaterialTheme.typography.titleMedium); Text(line.translationVi, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+        }
+        Text("Mẹo luyện nói", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        conversation.tips.forEach { Text("• $it") }
+    }
+}
+
+@Composable
+private fun FlashcardsScreen(state: AppUiState, nav: NavHostController) {
+    val flashcards = state.flashcards
+    if (flashcards == null) { EmptyState("Chưa có flashcard", "Quay về trang Học để tạo flashcard.") { nav.navigate("home") }; return }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) { IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Quay lại") }; Text(flashcards.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        Text("${flashcards.cards.size} thẻ được tạo từ ảnh", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        flashcards.cards.forEach { card ->
+            Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text(card.term, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(listOfNotNull(card.pronunciation, card.romanization, card.partOfSpeech).joinToString(" • "), color = MaterialTheme.colorScheme.primary); Text(card.meaningVi); Text(card.exampleTarget, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic); Text(card.exampleVi, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+        }
+    }
+}
+
+@Composable
+private fun ExerciseScreen(state: AppUiState, nav: NavHostController) {
+    val feedback = state.exerciseFeedback
+    if (feedback == null) { EmptyState("Chưa có kết quả", "Quay về trang Học để chấm bài từ ảnh.") { nav.navigate("home") }; return }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) { IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Quay lại") }; Text(feedback.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        Card(colors = CardDefaults.cardColors(containerColor = if (feedback.score >= 75) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text("Điểm ước lượng: ${feedback.score}/100", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text("Kết quả do AI đọc từ ảnh; hãy kiểm tra lại nếu ảnh mờ.") } }
+        FeedbackSection("Đáp án đọc được", feedback.answers)
+        FeedbackSection("Lỗi cần sửa", feedback.mistakes)
+        FeedbackSection("Giải thích", feedback.explanations)
+        FeedbackSection("Bước tiếp theo", feedback.nextSteps)
+    }
+}
+
+@Composable
+private fun FeedbackSection(title: String, items: List<String>) {
+    if (items.isEmpty()) return
+    Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+    items.forEach { Card(Modifier.fillMaxWidth()) { Text(it, Modifier.padding(14.dp)) } }
+}
+
+@Composable
+private fun LiveConversationScreen(state: AppUiState, nav: NavHostController) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val live = remember { GeminiLiveConversation() }
+    var active by remember { mutableStateOf(false) }
+    var starting by remember { mutableStateOf(false) }
+    var liveError by remember { mutableStateOf<String?>(null) }
+    val profile = state.profile
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted || profile == null) return@rememberLauncherForActivityResult
+        starting = true
+        scope.launch { runCatching { live.start(profile.voiceTag, profile.level) }.onSuccess { active = true }.onFailure { liveError = it.message ?: "Không thể kết nối Gemini Live" }.also { starting = false } }
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { scope.launch { live.stop() } } }
+    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) { IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Quay lại") }; Text("Hội thoại realtime", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) { Text(if (active) "Gemini đang lắng nghe" else "Luyện nói trực tiếp với Gemini", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text("Nói tự nhiên, Gemini sẽ trả lời bằng giọng nói và sửa lỗi ngắn gọn.") } }
+        if (starting) LinearProgressIndicator(Modifier.fillMaxWidth())
+        Button(onClick = {
+            if (active) { scope.launch { live.stop(); active = false } }
+            else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                profile?.let { starting = true; liveError = null; scope.launch { runCatching { live.start(it.voiceTag, it.level) }.onSuccess { active = true }.onFailure { liveError = it.message ?: "Không thể kết nối Gemini Live" }.also { starting = false } } }
+            } else permission.launch(Manifest.permission.RECORD_AUDIO)
+        }, enabled = !starting && profile != null, modifier = Modifier.fillMaxWidth().height(56.dp)) { Icon(Icons.Default.Mic, null); Spacer(Modifier.width(8.dp)); Text(if (active) "Dừng hội thoại" else "Bắt đầu nói chuyện") }
+        liveError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Text("Gemini Live là tính năng preview; cần mạng ổn định và có thể dùng quota riêng.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeScreen(state: AppUiState, viewModel: MainViewModel, nav: NavHostController) {
     var topic by remember { mutableStateOf("daily life") }
+    var imageAction by remember { mutableStateOf("lesson") }
     val profile = state.profile ?: return
+    val context = LocalContext.current
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val result = runCatching {
+            val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: error("Không thể đọc ảnh")
+            require(bytes.size <= 10 * 1024 * 1024) { "Ảnh quá lớn, hãy chọn ảnh dưới 10MB" }
+            bytes to mimeType
+        }
+        result.onSuccess { (bytes, mimeType) ->
+            when (imageAction) {
+                "flashcards" -> viewModel.generateFlashcardsFromImage(bytes, mimeType) { nav.navigate("flashcards") }
+                "exercise" -> viewModel.gradeExerciseFromImage(bytes, mimeType) { nav.navigate("exercise") }
+                else -> viewModel.generateLessonFromImage(bytes, mimeType) { nav.navigate("lesson") }
+            }
+        }.onFailure { viewModel.reportError(it.message ?: "Không thể đọc ảnh") }
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("Xin chào${state.user?.displayName?.let { ", $it" } ?: ""}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Hôm nay mình học gì?", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text("Ngôn ngữ đang học", fontWeight = FontWeight.SemiBold)
         LanguageChoiceRow(profile.languageCode, viewModel::switchLanguage)
+        Text("Cấp độ hiện tại • ${SupportedLanguages.find(profile.languageCode).levelSystem}", fontWeight = FontWeight.SemiBold)
+        ChoiceRow(SupportedLanguages.find(profile.languageCode).levels, profile.level, viewModel::switchLevel)
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(24.dp)) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("${SupportedLanguages.find(profile.languageCode).displayNameVi} • ${profile.level} • ${profile.sessionMinutes} phút", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 Text("Tạo một bài học vừa sức, có từ vựng, ngữ pháp, đọc hiểu và luyện nói.")
                 OutlinedTextField(topic, { topic = it }, Modifier.fillMaxWidth(), label = { Text("Chủ đề") })
-                Button(onClick = { viewModel.generateLesson(topic); nav.navigate("lesson") }, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                Button(onClick = { viewModel.generateLesson(topic) { nav.navigate("lesson") } }, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth().height(50.dp)) {
                     Icon(Icons.Default.AutoStories, null); Spacer(Modifier.width(8.dp)); Text(if (state.isBusy) "Đang tạo..." else "Tạo bài học")
                 }
+                OutlinedButton(onClick = { imageAction = "lesson"; imagePicker.launch("image/*") }, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                    Icon(Icons.Default.Image, null); Spacer(Modifier.width(8.dp)); Text("Tạo bài học từ ảnh")
+                }
+                OutlinedButton(onClick = { imageAction = "flashcards"; imagePicker.launch("image/*") }, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                    Icon(Icons.Default.AutoStories, null); Spacer(Modifier.width(8.dp)); Text("Tạo flashcard từ ảnh")
+                }
+                OutlinedButton(onClick = { imageAction = "exercise"; imagePicker.launch("image/*") }, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                    Icon(Icons.Default.CheckCircle, null); Spacer(Modifier.width(8.dp)); Text("Chấm bài tập từ ảnh")
+                }
+                OutlinedButton(onClick = { viewModel.generateConversation(topic) { nav.navigate("conversation") } }, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                    Icon(Icons.Default.RecordVoiceOver, null); Spacer(Modifier.width(8.dp)); Text("Tạo hội thoại theo chủ đề")
+                }
+                OutlinedButton(onClick = { nav.navigate("live") }, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+                    Icon(Icons.Default.Mic, null); Spacer(Modifier.width(8.dp)); Text("Hội thoại realtime với Gemini")
+                }
+                Text("Chọn ảnh trang sách hoặc flashcard; Gemini sẽ đọc nội dung và tạo bài theo cấp độ ${profile.level}.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         state.lesson?.let { lesson ->
@@ -260,13 +391,14 @@ private fun LessonScreen(state: AppUiState, viewModel: MainViewModel, nav: NavHo
     if (lesson == null) { EmptyState("Chưa có bài học", "Quay về trang Học để tạo bài đầu tiên.") { nav.navigate("home") }; return }
     val context = LocalContext.current
     val speaker = remember(context) { PronunciationSpeaker(context) }
-    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { speaker.shutdown() } }
+    val pcmPlayer = remember { PcmAudioPlayer() }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { pcmPlayer.stop(); speaker.shutdown() } }
     Column(Modifier.fillMaxSize()) {
         TopAppBar(title = { Text(lesson.payload.title) }, navigationIcon = { IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Quay lại") } })
         LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { Text("Từ vựng", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
             items(lesson.payload.vocabulary) { word ->
-                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(word.term, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); IconButton({ speaker.speak(word.term, state.profile?.voiceTag ?: "en-US") }) { Icon(Icons.Default.VolumeUp, "Nghe cách đọc") } }; Text(listOfNotNull(word.pronunciation, word.romanization?.takeIf { it.isNotBlank() }, word.partOfSpeech).joinToString(" • "), color = MaterialTheme.colorScheme.primary); Text(word.meaningVi); Text(word.exampleTarget, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic); Text(word.exampleVi, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+                Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Row(verticalAlignment = Alignment.CenterVertically) { Text(word.term, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)); IconButton({ viewModel.synthesizeSpeech(word.term, { pcmPlayer.play(it) }, { speaker.speak(word.term, state.profile?.voiceTag ?: "en-US") }) }) { Icon(Icons.Default.VolumeUp, "Nghe cách đọc") } }; Text(listOfNotNull(word.pronunciation, word.romanization?.takeIf { it.isNotBlank() }, word.partOfSpeech).joinToString(" • "), color = MaterialTheme.colorScheme.primary); Text(word.meaningVi); Text(word.exampleTarget, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic); Text(word.exampleVi, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
             }
             item { Text("Cấu trúc câu", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
             items(lesson.payload.grammar) { grammar -> Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text(grammar.pattern, fontWeight = FontWeight.Bold); Text(grammar.explanationVi); Text("Ví dụ: ${grammar.examples.joinToString(" • ")}"); Text("Lưu ý: ${grammar.commonMistake}", color = MaterialTheme.colorScheme.error) } } }
@@ -291,15 +423,16 @@ private fun PracticeScreen(state: AppUiState, viewModel: MainViewModel, nav: Nav
     val context = LocalContext.current
     val recorder = remember { VoiceRecorder(context) }
     val speaker = remember { PronunciationSpeaker(context) }
+    val pcmPlayer = remember { PcmAudioPlayer() }
     var recording by remember { mutableStateOf(false) }
     var transcript by remember { mutableStateOf("") }
     var audioFile by remember { mutableStateOf<java.io.File?>(null) }
     val voiceTag = state.profile?.voiceTag ?: "en-US"
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) { audioFile = recorder.start(voiceTag) { transcript = it }; recording = true } }
-    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { if (recording) recorder.cancel(); speaker.shutdown() } }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { if (recording) recorder.cancel(); pcmPlayer.stop(); speaker.shutdown() } }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) { IconButton({ nav.popBackStack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Quay lại") }; Text("Luyện nói", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold) }
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer), shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("Đọc câu này", color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold); Text(prompt.targetText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold); IconButton({ speaker.speak(prompt.targetText, voiceTag) }, Modifier.size(52.dp).semantics { role = Role.Button }) { Icon(Icons.Default.VolumeUp, "Nghe câu mẫu", Modifier.size(30.dp)) } } }
+        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer), shape = RoundedCornerShape(24.dp)) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { Text("Đọc câu này", color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold); Text(prompt.targetText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold); IconButton({ viewModel.synthesizeSpeech(prompt.targetText, { pcmPlayer.play(it) }, { speaker.speak(prompt.targetText, voiceTag) }) }, Modifier.size(52.dp).semantics { role = Role.Button }) { Icon(Icons.Default.VolumeUp, "Nghe câu mẫu", Modifier.size(30.dp)) } } }
         Text("Mẹo: ${prompt.pronunciationTips.joinToString(" • ")}", color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (transcript.isNotBlank()) Card(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp)) { Text("Bạn đang nói", fontWeight = FontWeight.Bold); Text(transcript) } }
         Button(onClick = { if (recording) { val result = recorder.stop(); audioFile = result.first; transcript = result.second.ifBlank { transcript }; recording = false; viewModel.scoreSpeech(prompt.targetText, transcript, audioFile) } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { audioFile = recorder.start(voiceTag) { transcript = it }; recording = true } else permission.launch(Manifest.permission.RECORD_AUDIO) }, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth().height(56.dp)) { Icon(if (recording) Icons.Default.CheckCircle else Icons.Default.Mic, null); Spacer(Modifier.width(8.dp)); Text(if (recording) "Dừng và chấm bài" else "Bắt đầu ghi âm") }
@@ -315,14 +448,60 @@ private fun ProgressScreen(viewModel: MainViewModel) {
     val attempts by viewModel.speakingAttempts.collectAsStateWithLifecycle(initialValue = emptyList())
     val vocabulary by viewModel.vocabularyCount.collectAsStateWithLifecycle(initialValue = 0)
     val due by viewModel.dueCount.collectAsStateWithLifecycle(initialValue = 0)
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) { Text("Tiến độ", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { StatCard("Từ đang học", vocabulary.toString(), Modifier.weight(1f)); StatCard("Đến hạn", due.toString(), Modifier.weight(1f)); StatCard("Lượt nói", attempts.size.toString(), Modifier.weight(1f)) }; Text("Các lượt luyện nói gần đây", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (attempts.isEmpty()) Text("Chưa có lượt nào. Mở một bài học và thử đọc thành tiếng nhé.", color = MaterialTheme.colorScheme.onSurfaceVariant) else attempts.take(10).forEach { attempt -> Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.GraphicEq, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(attempt.targetText, maxLines = 2); Text("${attempt.overall}/100 • ${attempt.transcript}", color = MaterialTheme.colorScheme.onSurfaceVariant) }; Text(if (attempt.overall >= 75) "Đạt" else "Luyện thêm", color = if (attempt.overall >= 75) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) } } } }
+    val commonIssues = attempts.flatMap { attempt -> runCatching { kotlinx.serialization.json.Json.decodeFromString<PronunciationFeedback>(attempt.feedbackJson).issues }.getOrDefault(emptyList()) }
+        .filter { it.isNotBlank() }.groupingBy { it }.eachCount().toList().sortedByDescending { it.second }.take(5)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) { Text("Tiến độ", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) { StatCard("Từ đang học", vocabulary.toString(), Modifier.weight(1f)); StatCard("Đến hạn", due.toString(), Modifier.weight(1f)); StatCard("Lượt nói", attempts.size.toString(), Modifier.weight(1f)) }; if (commonIssues.isNotEmpty()) { Text("Lỗi phát âm cần ưu tiên", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); commonIssues.forEach { (issue, count) -> Card(Modifier.fillMaxWidth()) { Row(modifier = Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) { Text(issue, Modifier.weight(1f)); Text("${count} lần", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold) } } } }; Text("Các lượt luyện nói gần đây", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); if (attempts.isEmpty()) Text("Chưa có lượt nào. Mở một bài học và thử đọc thành tiếng nhé.", color = MaterialTheme.colorScheme.onSurfaceVariant) else attempts.take(10).forEach { attempt -> Card(Modifier.fillMaxWidth()) { Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.GraphicEq, null, tint = MaterialTheme.colorScheme.primary); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(attempt.targetText, maxLines = 2); Text("${attempt.overall}/100 • ${attempt.transcript}", color = MaterialTheme.colorScheme.onSurfaceVariant) }; Text(if (attempt.overall >= 75) "Đạt" else "Luyện thêm", color = if (attempt.overall >= 75) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error) } } } }
 }
 
 @Composable
 private fun StatCard(label: String, value: String, modifier: Modifier = Modifier) { Card(modifier) { Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary); Text(label, fontSize = 12.sp, textAlign = TextAlign.Center) } } }
 
 @Composable
-private fun SettingsScreen(state: AppUiState, viewModel: MainViewModel) { Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) { Text("Cài đặt", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text(state.user?.email.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant); state.profile?.let { Text("Đang học: ${SupportedLanguages.find(it.languageCode).displayNameVi} • ${it.level}") }; Text("Gemini Flash sẽ dùng Firebase AI Logic khi project đã được cấu hình."); OutlinedButton(onClick = viewModel::signOut, Modifier.fillMaxWidth().height(50.dp)) { Icon(Icons.Default.Logout, null); Spacer(Modifier.width(8.dp)); Text("Đăng xuất") } } }
+private fun SettingsScreen(state: AppUiState, viewModel: MainViewModel) {
+    // General-use models support the text/JSON lesson flow and audio input used by this app.
+    // Image, TTS and Live models are intentionally excluded because they need different APIs.
+    val modelOptions = (SupportedGeminiModels.generalUse + state.modelName).distinct()
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+        Text("Cài đặt", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text(state.user?.email.orEmpty(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        state.profile?.let { Text("Đang học: ${SupportedLanguages.find(it.languageCode).displayNameVi} • ${it.level}") }
+        Text("Model AI", fontWeight = FontWeight.SemiBold)
+        Text("Đổi sang Flash Lite nếu model hiện tại thường báo quá tải.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        ChoiceRow(modelOptions, state.modelName, viewModel::switchModel)
+        Text("Model đang dùng: ${state.modelName}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Tình trạng model", fontWeight = FontWeight.SemiBold)
+            OutlinedButton(onClick = viewModel::refreshModelHealth) { Text("Làm mới") }
+        }
+        val currentHealth = state.modelHealth.firstOrNull { it.modelName == state.modelName }
+        currentHealth?.let { ModelHealthCard(it) }
+        val alternative = state.modelHealth.firstOrNull { it.modelName != state.modelName && it.status == "Ổn định" }
+        if (currentHealth?.status == "Quá tải" && alternative != null) {
+            Text("Gợi ý chuyển sang ${alternative.modelName}", color = MaterialTheme.colorScheme.primary)
+            OutlinedButton(onClick = { viewModel.switchModel(alternative.modelName) }, Modifier.fillMaxWidth()) { Text("Dùng model này") }
+        }
+        Text("Gemini được gọi qua Firebase AI Logic khi project đã được cấu hình.")
+        OutlinedButton(onClick = viewModel::signOut, Modifier.fillMaxWidth().height(50.dp)) { Icon(Icons.Default.Logout, null); Spacer(Modifier.width(8.dp)); Text("Đăng xuất") }
+    }
+}
+
+@Composable
+private fun ModelHealthCard(health: ModelHealth) {
+    val statusColor = when (health.status) {
+        "Ổn định" -> MaterialTheme.colorScheme.primary
+        "Cảnh báo" -> MaterialTheme.colorScheme.tertiary
+        "Quá tải" -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(health.status, color = statusColor, fontWeight = FontWeight.Bold)
+            Text("${health.modelName} • ${health.requestCount} request • ${health.throttledCount} lần quá tải")
+            health.lastLatencyMs?.let { Text("Phản hồi gần nhất: ${it}ms", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            Text("Dữ liệu trên thiết bị này, không phải quota project chính xác.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
 
 @Composable
 private fun EmptyState(title: String, message: String, action: () -> Unit) { Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) { Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold); Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center); Button(action) { Text("Quay lại") } } } }

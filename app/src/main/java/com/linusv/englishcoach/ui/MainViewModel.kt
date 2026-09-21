@@ -9,6 +9,12 @@ import com.linusv.englishcoach.data.GeneratedLesson
 import com.linusv.englishcoach.data.LearnerProfile
 import com.linusv.englishcoach.data.LocalLessonRepository
 import com.linusv.englishcoach.data.SpeakingResult
+import com.linusv.englishcoach.data.SupportedLanguages
+import com.linusv.englishcoach.data.SupportedGeminiModels
+import com.linusv.englishcoach.data.ModelHealth
+import com.linusv.englishcoach.data.ConversationPayload
+import com.linusv.englishcoach.data.ExerciseFeedback
+import com.linusv.englishcoach.data.FlashcardSet
 import java.io.File
 import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,13 +29,23 @@ data class AppUiState(
     val speakingResult: SpeakingResult? = null,
     val isBusy: Boolean = false,
     val error: String? = null,
+    val modelName: String = "Demo Mode",
+    val modelHealth: List<ModelHealth> = emptyList(),
+    val flashcards: FlashcardSet? = null,
+    val conversation: ConversationPayload? = null,
+    val exerciseFeedback: ExerciseFeedback? = null,
 )
 
 class MainViewModel(
     private val auth: AuthRepository,
     private val repository: LocalLessonRepository,
 ) : ViewModel() {
-    private val _state = MutableStateFlow(AppUiState(user = auth.currentUser()))
+    private val initialModelName = repository.currentModelName() ?: "Demo Mode"
+    private val _state = MutableStateFlow(AppUiState(
+        user = auth.currentUser(),
+        modelName = initialModelName,
+        modelHealth = repository.modelHealth((SupportedGeminiModels.generalUse + initialModelName).distinct()),
+    ))
     val state: StateFlow<AppUiState> = _state.asStateFlow()
     val lessons = repository.lessons
     val speakingAttempts = repository.speakingAttempts
@@ -73,15 +89,104 @@ class MainViewModel(
         }
     }
 
-    fun generateLesson(topic: String) {
+    fun generateLesson(topic: String, onSuccess: () -> Unit = {}) {
         val profile = _state.value.profile ?: return
         viewModelScope.launch {
             setBusy(true)
             runCatching { repository.generateLesson(profile, topic.ifBlank { "daily life" }) }
-                .onSuccess { _state.value = _state.value.copy(lesson = it, error = null) }
+                .onSuccess {
+                    _state.value = _state.value.copy(lesson = it, error = null)
+                    onSuccess()
+                }
                 .onFailure { _state.value = _state.value.copy(error = "Không tạo được bài: ${it.message ?: "hãy thử lại"}") }
+            refreshModelHealth()
             setBusy(false)
         }
+    }
+
+    fun generateLessonFromImage(imageBytes: ByteArray, mimeType: String, onSuccess: () -> Unit = {}) {
+        val profile = _state.value.profile ?: return
+        viewModelScope.launch {
+            setBusy(true)
+            runCatching { repository.generateLessonFromImage(profile, imageBytes, mimeType) }
+                .onSuccess {
+                    _state.value = _state.value.copy(lesson = it, error = null)
+                    onSuccess()
+                }
+                .onFailure { _state.value = _state.value.copy(error = "Không đọc được ảnh: ${it.message ?: "hãy thử lại"}") }
+            refreshModelHealth()
+            setBusy(false)
+        }
+    }
+
+    fun generateFlashcardsFromImage(imageBytes: ByteArray, mimeType: String, onSuccess: () -> Unit = {}) {
+        val profile = _state.value.profile ?: return
+        viewModelScope.launch {
+            setBusy(true)
+            runCatching { repository.generateFlashcardsFromImage(profile, imageBytes, mimeType) }
+                .onSuccess { _state.value = _state.value.copy(flashcards = it, error = null); onSuccess() }
+                .onFailure { _state.value = _state.value.copy(error = "Không tạo được flashcard: ${it.message ?: "hãy thử lại"}") }
+            refreshModelHealth()
+            setBusy(false)
+        }
+    }
+
+    fun gradeExerciseFromImage(imageBytes: ByteArray, mimeType: String, onSuccess: () -> Unit = {}) {
+        val profile = _state.value.profile ?: return
+        viewModelScope.launch {
+            setBusy(true)
+            runCatching { repository.gradeExerciseFromImage(profile, imageBytes, mimeType) }
+                .onSuccess { _state.value = _state.value.copy(exerciseFeedback = it, error = null); onSuccess() }
+                .onFailure { _state.value = _state.value.copy(error = "Không chấm được bài: ${it.message ?: "hãy thử lại"}") }
+            refreshModelHealth()
+            setBusy(false)
+        }
+    }
+
+    fun generateConversation(topic: String, onSuccess: () -> Unit = {}) {
+        val profile = _state.value.profile ?: return
+        viewModelScope.launch {
+            setBusy(true)
+            runCatching { repository.generateConversation(profile, topic.ifBlank { "daily conversation" }) }
+                .onSuccess { _state.value = _state.value.copy(conversation = it, error = null); onSuccess() }
+                .onFailure { _state.value = _state.value.copy(error = "Không tạo được hội thoại: ${it.message ?: "hãy thử lại"}") }
+            refreshModelHealth()
+            setBusy(false)
+        }
+    }
+
+    fun synthesizeSpeech(text: String, onAudio: (ByteArray) -> Unit, onFailure: (Throwable) -> Unit = {}) {
+        val profile = _state.value.profile ?: return
+        viewModelScope.launch {
+            runCatching { repository.synthesizeSpeech(profile, text) }
+                .onSuccess { audio -> if (audio != null) onAudio(audio) else onFailure(IllegalStateException("Gemini TTS không trả về audio")) }
+                .onFailure(onFailure)
+        }
+    }
+
+    fun switchLevel(level: String) {
+        val current = _state.value.profile ?: return
+        val language = SupportedLanguages.find(current.languageCode)
+        if (level !in language.levels || current.level == level) return
+        viewModelScope.launch {
+            setBusy(true)
+            runCatching {
+                val updated = current.copy(level = level)
+                repository.saveProfile(updated)
+                updated
+            }.onSuccess { updated ->
+                // The existing lesson was generated for the old level.
+                _state.value = _state.value.copy(profile = updated, lesson = null, speakingResult = null, error = null)
+            }.onFailure { _state.value = _state.value.copy(error = "Không đổi được cấp độ: ${it.message ?: "hãy thử lại"}") }
+            setBusy(false)
+        }
+    }
+
+    fun switchModel(modelName: String) {
+        if (modelName.isBlank() || modelName == _state.value.modelName) return
+        repository.selectModel(modelName)
+        _state.value = _state.value.copy(modelName = modelName, error = null)
+        refreshModelHealth()
     }
 
     fun switchLanguage(languageCode: String) {
@@ -107,6 +212,7 @@ class MainViewModel(
             runCatching { repository.scoreSpeech(profile, targetText, transcript, audio) }
                 .onSuccess { _state.value = _state.value.copy(speakingResult = it, error = null) }
                 .onFailure { _state.value = _state.value.copy(error = "Không chấm được audio: ${it.message ?: "hãy thử lại"}") }
+            refreshModelHealth()
             audio?.delete()
             setBusy(false)
         }
@@ -114,6 +220,11 @@ class MainViewModel(
 
     fun clearSpeakingResult() { _state.value = _state.value.copy(speakingResult = null) }
     fun clearError() { _state.value = _state.value.copy(error = null) }
+    fun reportError(message: String) { _state.value = _state.value.copy(error = message) }
+    fun refreshModelHealth() {
+        val names = (SupportedGeminiModels.generalUse + _state.value.modelName).distinct()
+        _state.value = _state.value.copy(modelHealth = repository.modelHealth(names))
+    }
     private fun setBusy(value: Boolean) { _state.value = _state.value.copy(isBusy = value) }
 }
 
